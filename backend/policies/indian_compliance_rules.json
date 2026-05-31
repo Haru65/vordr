@@ -1,827 +1,534 @@
 {
-  "metadata": {
-    "generated_date": "2026-04-05T18:42:19.678820",
-    "version": "1.0",
-    "frameworks": [
-      "DPDPA",
-      "RBI",
-      "SEBI",
-      "IT_ACT",
-      "ISO_8000",
-      "SPDI"
-    ],
-    "country": "India",
-    "description": "Comprehensive Indian compliance rules for code scanning"
-  },
-  "total_rules": 18,
-  "rules_by_framework": {
-    "DPDPA": 5,
-    "RBI": 5,
-    "SEBI": 2,
-    "IT_ACT": 3,
-    "ISO_8000": 1,
-    "GENERAL_SECURITY": 2
-  },
-  "rules": [
+  "version": "1.0.0",
+  "description": "Indian Compliance Rules for DevSecOps - DPDPA 2023, IT Act 2000, RBI Guidelines, SEBI, ISO 27001",
+  "frameworks": [
     {
-      "id": "dpdpa_001",
-      "framework": "DPDPA",
-      "title": "Consent Before Processing",
-      "description": "Personal data must not be processed without explicit consent",
-      "severity": "critical",
-      "section": "DPDPA Section 7 - Consent",
-      "patterns": [
-        "db.store(userData) without consent check",
-        "process(personalData) without consent.validate()",
-        "sendEmail(user.email) without marketing_consent",
-        "analytics.track(userData) without analytics_consent",
-        "thirdParty.share(userData) without consent",
-        "profile_user(data) without consent"
-      ],
-      "keywords": [
-        "personal_data",
-        "pii",
-        "consent",
-        "user_data"
-      ],
-      "fix_template": "\nif (!user.consent.processing) {\n    throw new UnauthorizedError('Consent required for data processing');\n}\n// Then process data\ndatabase.store(userData);\n                        ",
-      "impact": "Violation penalty: ₹5 crore or 2% annual turnover, criminal liability"
-    },
-    {
-      "id": "dpdpa_002",
-      "framework": "DPDPA",
-      "title": "Purpose Limitation",
-      "description": "Data must only be used for disclosed, consented purposes",
-      "severity": "critical",
-      "section": "DPDPA - Purpose Limitation Principle",
-      "patterns": [
-        "collect for X, use for Y",
-        "telemetry_data used for profiling",
-        "payment_info used for marketing",
-        "health_data used for insurance_prediction",
-        "location_data used for competitor_analysis"
-      ],
-      "keywords": [
-        "purpose",
-        "secondary_use",
-        "data_flow",
-        "usage_context"
-      ],
-      "fix_template": "\n// Validate purpose before use\nif (data.intended_purpose !== current_operation.purpose) {\n    throw new PurposeViolation('Data purpose mismatch');\n}\n                        ",
-      "impact": "Data processing for unauthorized purpose = violation"
-    },
-    {
-      "id": "dpdpa_003",
-      "framework": "DPDPA",
-      "title": "Data Minimization",
-      "description": "Only necessary personal data should be collected and processed",
-      "severity": "high",
-      "section": "DPDPA - Minimization Principle",
-      "patterns": [
-        "collect: [email, phone, address, ssn, dob]  // Too much data",
-        "SELECT * FROM users_pii",
-        "store_all_fields(userData)",
-        "return {...user, ssn, phone, address, dob}  // Excessive"
-      ],
-      "keywords": [
-        "data_minimization",
-        "excessive_collection",
-        "unnecessary_fields"
-      ],
-      "fix_template": "\n// Only collect necessary fields\nconst requiredFields = ['email', 'phone'];  // Just what's needed\nconst userData = {\n    email: user.email,\n    phone: user.phone\n    // Remove ssn, dob, address, etc.\n};\n                        ",
-      "impact": "Unnecessary data collection = principle violation"
-    },
-    {
-      "id": "dpdpa_004",
-      "framework": "DPDPA",
-      "title": "Data Breach Notification",
-      "description": "Notify users within 72 hours of discovering a breach",
-      "severity": "critical",
-      "section": "DPDPA Section 8.1 - Breach Notification",
-      "patterns": [
-        "catch(security_breach) { /* do nothing */ }",
-        "if (database_compromised) { log_only() }  // No notification",
-        "breach_detected = true; // No action",
-        "compromised = true; continue_operation()  // No alert"
-      ],
-      "keywords": [
-        "breach",
-        "notification",
-        "data_leak",
-        "unauthorized_access"
-      ],
-      "fix_template": "\ntry {\n    protectDatabase();\n} catch (BreachException e) {\n    logger.critical('BREACH DETECTED');\n    await notifyUsers(72_hours_deadline);\n    await notifyAuthority();\n    recordBreach();\n}\n                        ",
-      "impact": "No breach notification = ₹10 crore penalty"
-    },
-    {
-      "id": "dpdpa_005",
-      "framework": "DPDPA",
-      "title": "User Rights Implementation",
-      "description": "Implement right to access, rectification, erasure, portability",
-      "severity": "high",
-      "section": "DPDPA Sections 16-18 - User Rights",
-      "patterns": [
-        "No DELETE endpoint",
-        "No EXPORT endpoint",
-        "No data correction mechanism",
-        "No access log for user requests"
-      ],
-      "keywords": [
-        "user_rights",
-        "data_deletion",
-        "data_portability",
-        "right_to_access"
-      ],
-      "fix_template": "\n// Implement user rights endpoints\n@app.get('/api/user/data/access')\nasync def right_to_access(): \n    return user_personal_data\n\n@app.delete('/api/user/data')\nasync def right_to_erasure():\n    await delete_all_personal_data(user_id)\n    \n@app.get('/api/user/data/export')\nasync def right_to_portability():\n    return export_personal_data_json(user_id)\n                        ",
-      "impact": "Missing user rights = non-compliance"
-    },
-    {
-      "id": "rbi_001",
-      "framework": "RBI",
-      "title": "Authorization Control",
-      "description": "Authorization must be enforced on server-side, not client-provided",
-      "severity": "critical",
-      "section": "RBI Information Security Guidelines",
-      "patterns": [
-        "const role = req.body.role",
-        "const access_level = req.query.level",
-        "if (req.body.is_admin) { approve_transaction() }",
-        "user.role = req.body.role"
-      ],
-      "keywords": [
-        "authorization",
-        "role_check",
-        "privilege",
-        "admin"
-      ],
-      "fix_template": "\n// WRONG:  const role = req.body.role\n// RIGHT:  Extract from verified JWT/session\nconst role = extractFromJWT(req.headers.authorization);\n\nif (role !== 'admin') {\n    return 403;\n}\n                        ",
-      "impact": "Authorization bypass = unauthorized transactions"
-    },
-    {
-      "id": "rbi_002",
-      "framework": "RBI",
-      "title": "Transaction Atomicity",
-      "description": "Financial transactions must be atomic (all-or-nothing)",
-      "severity": "critical",
-      "section": "RBI Guidelines - Transaction Integrity",
-      "patterns": [
-        "balance = get_balance(); if balance > amount: debit();  // Race condition",
-        "check(balance); debit(); credit();  // Not atomic",
-        "await select(); // ... gap ... await update();  // Concurrent",
-        "read + write without transaction"
-      ],
-      "keywords": [
-        "transaction",
-        "atomic",
-        "race_condition",
-        "concurrency"
-      ],
-      "fix_template": "\n// Use pessimistic locking or transactions\nBEGIN TRANSACTION;\nbalance = SELECT balance FROM accounts WHERE id = ? FOR UPDATE;\nIF balance >= amount THEN\n    UPDATE accounts SET balance = balance - amount;\n    UPDATE accounts SET balance = balance + amount WHERE id = target;\n    COMMIT;\nELSE\n    ROLLBACK;\nEND IF;\n                        ",
-      "impact": "Race conditions = double charging, financial loss"
-    },
-    {
-      "id": "rbi_003",
-      "framework": "RBI",
-      "title": "Encryption in Transit and at Rest",
-      "description": "Use TLS 1.2+ for transit, AES-256 for rest",
-      "severity": "critical",
-      "section": "RBI Guidelines - Encryption",
-      "patterns": [
-        "http://api.bank.com/transfer  // Not HTTPS",
-        "store(plaintext_password)",
-        "send_over_http(card_details)",
-        "database without encryption"
-      ],
-      "keywords": [
-        "encryption",
-        "https",
-        "tls",
-        "aes",
-        "plaintext"
-      ],
-      "fix_template": "\n// Enforce TLS 1.2+ everywhere\nconst secureConnection = tls.createSecureContext({\n    minVersion: 'TLSv1.2',\n    maxVersion: 'TLSv1.3'\n});\n\n// Encrypt sensitive data at rest\nconst encrypted = encrypt(sensitiveData, 'AES-256');\n                        ",
-      "impact": "Unencrypted transmission = data interception, fraud"
-    },
-    {
-      "id": "rbi_004",
-      "framework": "RBI",
-      "title": "Immutable Audit Trails",
-      "description": "Maintain 3-year audit logs of all transactions",
-      "severity": "high",
-      "section": "RBI Guidelines - Audit Trail",
-      "patterns": [
-        "No transaction logging",
-        "Modifiable logs",
-        "In-memory logging only",
-        "Log retention < 3 years"
-      ],
-      "keywords": [
-        "audit",
-        "logging",
-        "transaction_log",
-        "trail"
-      ],
-      "fix_template": "\n// Append-only audit log\nasync function logTransaction(txn) {\n    const auditEntry = {\n        timestamp: Date.now(),\n        user_id: txn.user_id,\n        action: txn.action,\n        amount: txn.amount,\n        status: txn.status,\n        hash: sha256(JSON.stringify(txn))  // Immutable\n    };\n    \n    await auditLog.append(auditEntry);  // Append-only database\n    // Keep for 3+ years\n}\n                        ",
-      "impact": "Missing audit logs = non-compliance, cannot prove legitimacy"
-    },
-    {
-      "id": "rbi_005",
-      "framework": "RBI",
-      "title": "Rate Limiting and Brute-Force Protection",
-      "description": "Implement rate limiting on sensitive operations",
-      "severity": "high",
-      "section": "RBI Guidelines - Security Controls",
-      "patterns": [
-        "No rate limit on login",
-        "Unlimited transaction attempts",
-        "No CAPTCHA on suspicious activity",
-        "Unlimited API requests"
-      ],
-      "keywords": [
-        "rate_limit",
-        "brute_force",
-        "throttle",
-        "captcha"
-      ],
-      "fix_template": "\n// Implement rate limiting\nconst limiter = rateLimit({\n    windowMs: 15 * 60 * 1000,  // 15 minutes\n    max: 5  // Max 5 requests per IP\n});\n\napp.post('/login', limiter, handleLogin);\napp.post('/transfer', limiter, handleTransfer);\n                        ",
-      "impact": "No rate limiting = brute-force attacks, account takeover"
-    },
-    {
-      "id": "sebi_001",
-      "framework": "SEBI",
-      "title": "Anti-Market Manipulation",
-      "description": "Prevent unfair trading practices and information asymmetry",
-      "severity": "critical",
-      "section": "SEBI - Insider Trading Regulations",
-      "patterns": [
-        "selective_disclosure(insider_info, special_user)",
-        "delay_public_info(news) { give_to_vip_first() }",
-        "front_running: execute_trade_before_client_order",
-        "paint_tape: fake_volume_trading"
-      ],
-      "keywords": [
-        "insider_trading",
-        "market_manipulation",
-        "front_running"
-      ],
-      "fix_template": "\n// Ensure simultaneous disclosure\nasync function announceInfo(info) {\n    // Release to ALL users at same time\n    await broadcast(info, ALL_USERS);\n    \n    // Log order of disclosure\n    logSimultaneousDisclosure(info, timestamp);\n}\n\n// Prevent front-running\nvalidateOrderSequence(client_order_timestamp, execution_timestamp);\n                        ",
-      "impact": "Market manipulation penalty under SEBI Act"
-    },
-    {
-      "id": "sebi_002",
-      "framework": "SEBI",
-      "title": "Transparency in Trading",
-      "description": "Transparent pricing, no hidden charges",
-      "severity": "high",
-      "section": "SEBI - Investor Protection",
-      "patterns": [
-        "hidden_commission",
-        "undisclosed_fees",
-        "variable_pricing_by_user"
-      ],
-      "keywords": [
-        "transparency",
-        "fees",
-        "charges",
-        "pricing"
-      ],
-      "fix_template": "\n// Transparent pricing\nconst quote = {\n    symbol: 'RELIANCE',\n    buy_price: 2500.00,\n    sell_price: 2500.50,\n    charges: {\n        brokerage: 20,\n        fee: 5,\n        tax: 45\n    },\n    total: 2570.50\n};\n// Always SHOW all charges before confirmation\nshowFullBreakdown(quote, user);\n                        ",
-      "impact": "Lack of transparency = investor protection violation"
-    },
-    {
-      "id": "it_001",
-      "framework": "IT_ACT",
-      "title": "Unauthorized Access Prevention",
-      "description": "Prevent unauthorized access under Section 43/66",
-      "severity": "critical",
-      "section": "IT Act Section 43 - Unauthorized Access",
-      "patterns": [
-        "No authentication on sensitive endpoints",
-        "@app.get('/admin/users')  // No auth check",
-        "SELECT * allowed without login",
-        "SQL injection vulnerability"
-      ],
-      "keywords": [
-        "unauthorized_access",
-        "authentication",
-        "injection"
-      ],
-      "fix_template": "\n@app.get('/admin/users')\n@require_authentication  // Add auth middleware\n@require_role('admin')   // Add authorization\nasync def get_users():\n    return protected_data\n\n// Validate all inputs\nuser_id = validate_integer(request.query.user_id)\nquery = select_prepared_statement(user_id)  // Use parameterized queries\n                        ",
-      "impact": "Section 43 - damages up to ₹1 crore"
-    },
-    {
-      "id": "it_002",
-      "framework": "IT_ACT",
-      "title": "Sensitive Data Protection",
-      "description": "Protect SPDI (Sensitive Personal Data/Information)",
-      "severity": "critical",
-      "section": "SPDI Rules - Data Security",
-      "patterns": [
-        "logger.info(f'User: {email}, {phone}, {ssn}')",
-        "console.log(sensitiveData)",
-        "send_via_email(ssn)",
-        "store_plaintext(password)"
-      ],
-      "keywords": [
-        "spdi",
-        "sensitive_data",
-        "pii",
-        "logging"
-      ],
-      "fix_template": "\n// Never log PII\nlogger.info('User registration completed');  // ✓ Safe\n\n// Mask sensitive data\nmasked_phone = phone.slice(-4).padStart(10, '*');  // ****345678\nmasked_ssn = ssn.slice(-2).padStart(12, '*');     // **********23\n\n// Hash passwords\npassword_hash = bcrypt.hash(password, 10);\n\n// Send only essential data\nsend_email(email, {\n    // Only email address, no sensitive data\n});\n                        ",
-      "impact": "SPDI compromise = Section 66/72 - imprisonment + penalty"
-    },
-    {
-      "id": "it_003",
-      "framework": "IT_ACT",
-      "title": "Input Validation",
-      "description": "Validate all inputs to prevent injection attacks",
-      "severity": "critical",
-      "section": "IT Act Section 65 - Tampering with Computer Source",
-      "patterns": [
-        "query = 'SELECT * FROM users WHERE id = ' + request.id",
-        "eval(request.code)",
-        "exec(user_input)",
-        "No input sanitization"
-      ],
-      "keywords": [
-        "injection",
-        "validation",
-        "sanitization"
-      ],
-      "fix_template": "\n// Use parameterized queries\nquery = 'SELECT * FROM users WHERE id = ?';\nresult = execute(query, [user_id]);\n\n// Validate and sanitize\nif (!isValidEmail(email)) throw new ValidationError();\nsanitized_input = sanitize(request.comment);\n                        ",
-      "impact": "Section 65 - Tampering = imprisonment up to 3 years"
-    },
-    {
-      "id": "iso_001",
-      "framework": "ISO_8000",
-      "title": "Data Accuracy",
-      "description": "Data must be accurate and verified",
-      "severity": "high",
-      "section": "ISO 8000 - Data Quality",
-      "patterns": [
-        "store without validation",
-        "No verification mechanism",
-        "Accept unvalidated user input directly"
-      ],
-      "keywords": [
-        "accuracy",
-        "validation",
-        "verification"
-      ],
-      "fix_template": "\n// Verify data before storage\nif (validatePhoneNumber(phone) && validateEmail(email)) {\n    await database.store(userData);\n} else {\n    throw new ValidationError('Invalid data format');\n}\n\n// Use checksums\ndata_hash = sha256(data);\nstore_with_hash(data, data_hash);\n                        ",
-      "impact": "Poor data quality affects business decisions"
-    },
-    {
-      "id": "sec_001",
-      "framework": "GENERAL_SECURITY",
-      "title": "No Hardcoded Credentials",
-      "description": "Never store API keys, passwords in code",
-      "severity": "critical",
-      "section": "",
-      "patterns": [
-        "api_key = \"sk_live_abcd1234\"",
-        "password = \"admin123\"",
-        "db_password = \"mysql_root\"",
-        "aws_secret = \"aws_secret_access_key\""
-      ],
-      "keywords": [
-        "credentials",
-        "api_key",
-        "password",
-        "secret"
-      ],
-      "fix_template": "\n// Use environment variables\nconst api_key = process.env.GROQ_API_KEY;\nconst db_password = process.env.DB_PASSWORD;\n\n// Or use secrets manager\nconst secret = await secretsManager.get('db-password');\n                        ",
-      "impact": "Hardcoded secrets = account compromise"
-    },
-    {
-      "id": "sec_002",
-      "framework": "GENERAL_SECURITY",
-      "title": "SQL Injection Prevention",
-      "description": "Always use parameterized queries",
-      "severity": "critical",
-      "section": "",
-      "patterns": [
-        "f\"SELECT * FROM users WHERE id = {user_id}\"",
-        "query = f'UPDATE {table} SET {column} = {value}'",
-        "Non-parameterized SQL queries"
-      ],
-      "keywords": [
-        "sql_injection",
-        "query",
-        "parameterized"
-      ],
-      "fix_template": "\n// WRONG:\nquery = f\"SELECT * FROM users WHERE id = {user_id}\"\n\n// RIGHT:\nquery = \"SELECT * FROM users WHERE id = ?\"\ndatabase.execute(query, [user_id])\n                        ",
-      "impact": "SQL injection = database compromise"
-    }
-  ],
-  "frameworks": {
-    "DPDPA": {
-      "title": "Digital Personal Data Protection Act, 2023",
-      "authority": "Ministry of Electronics and Information Technology (MeitY)",
-      "rules": {
-        "dpdpa_001_consent_before_processing": {
-          "id": "dpdpa_001",
-          "title": "Consent Before Processing",
-          "description": "Personal data must not be processed without explicit consent",
-          "section": "DPDPA Section 7 - Consent",
+      "id": "dpdpa-2023",
+      "name": "Digital Personal Data Protection Act 2023",
+      "description": "India's comprehensive data protection law",
+      "rules": [
+        {
+          "id": "DPDPA-001",
+          "name": "Consent Management",
           "severity": "critical",
+          "description": "Ensure explicit user consent is obtained before processing personal data",
+          "category": "data-protection",
+          "cwe": ["CWE-359"],
+          "owasp": ["A01:2021"],
           "patterns": [
-            "db.store(userData) without consent check",
-            "process(personalData) without consent.validate()",
-            "sendEmail(user.email) without marketing_consent",
-            "analytics.track(userData) without analytics_consent",
-            "thirdParty.share(userData) without consent",
-            "profile_user(data) without consent"
+            "Missing consent validation before data collection",
+            "No consent tracking mechanism",
+            "Implicit consent without user action"
           ],
-          "keywords": [
-            "personal_data",
-            "pii",
-            "consent",
-            "user_data"
-          ],
-          "fix_template": "\nif (!user.consent.processing) {\n    throw new UnauthorizedError('Consent required for data processing');\n}\n// Then process data\ndatabase.store(userData);\n                        ",
-          "impact": "Violation penalty: ₹5 crore or 2% annual turnover, criminal liability"
+          "remediation": "Implement explicit consent mechanism with clear opt-in/opt-out options and maintain consent records"
         },
-        "dpdpa_002_purpose_limitation": {
-          "id": "dpdpa_002",
-          "title": "Purpose Limitation",
-          "description": "Data must only be used for disclosed, consented purposes",
-          "section": "DPDPA - Purpose Limitation Principle",
-          "severity": "critical",
-          "patterns": [
-            "collect for X, use for Y",
-            "telemetry_data used for profiling",
-            "payment_info used for marketing",
-            "health_data used for insurance_prediction",
-            "location_data used for competitor_analysis"
-          ],
-          "keywords": [
-            "purpose",
-            "secondary_use",
-            "data_flow",
-            "usage_context"
-          ],
-          "fix_template": "\n// Validate purpose before use\nif (data.intended_purpose !== current_operation.purpose) {\n    throw new PurposeViolation('Data purpose mismatch');\n}\n                        ",
-          "impact": "Data processing for unauthorized purpose = violation"
-        },
-        "dpdpa_003_data_minimization": {
-          "id": "dpdpa_003",
-          "title": "Data Minimization",
-          "description": "Only necessary personal data should be collected and processed",
-          "section": "DPDPA - Minimization Principle",
+        {
+          "id": "DPDPA-002",
+          "name": "Purpose Limitation",
           "severity": "high",
+          "description": "Personal data must be collected for specified, explicit, and legitimate purposes",
+          "category": "data-protection",
+          "cwe": ["CWE-359"],
+          "owasp": ["A01:2021"],
           "patterns": [
-            "collect: [email, phone, address, ssn, dob]  // Too much data",
-            "SELECT * FROM users_pii",
-            "store_all_fields(userData)",
-            "return {...user, ssn, phone, address, dob}  // Excessive"
+            "Data collection without stated purpose",
+            "Using data beyond original purpose",
+            "No purpose documentation"
           ],
-          "keywords": [
-            "data_minimization",
-            "excessive_collection",
-            "unnecessary_fields"
-          ],
-          "fix_template": "\n// Only collect necessary fields\nconst requiredFields = ['email', 'phone'];  // Just what's needed\nconst userData = {\n    email: user.email,\n    phone: user.phone\n    // Remove ssn, dob, address, etc.\n};\n                        ",
-          "impact": "Unnecessary data collection = principle violation"
+          "remediation": "Document data collection purposes and implement purpose-based access controls"
         },
-        "dpdpa_004_breach_notification": {
-          "id": "dpdpa_004",
-          "title": "Data Breach Notification",
-          "description": "Notify users within 72 hours of discovering a breach",
-          "section": "DPDPA Section 8.1 - Breach Notification",
-          "severity": "critical",
-          "patterns": [
-            "catch(security_breach) { /* do nothing */ }",
-            "if (database_compromised) { log_only() }  // No notification",
-            "breach_detected = true; // No action",
-            "compromised = true; continue_operation()  // No alert"
-          ],
-          "keywords": [
-            "breach",
-            "notification",
-            "data_leak",
-            "unauthorized_access"
-          ],
-          "fix_template": "\ntry {\n    protectDatabase();\n} catch (BreachException e) {\n    logger.critical('BREACH DETECTED');\n    await notifyUsers(72_hours_deadline);\n    await notifyAuthority();\n    recordBreach();\n}\n                        ",
-          "impact": "No breach notification = ₹10 crore penalty"
-        },
-        "dpdpa_005_user_rights": {
-          "id": "dpdpa_005",
-          "title": "User Rights Implementation",
-          "description": "Implement right to access, rectification, erasure, portability",
-          "section": "DPDPA Sections 16-18 - User Rights",
+        {
+          "id": "DPDPA-003",
+          "name": "Data Minimization",
           "severity": "high",
+          "description": "Collect only data that is necessary for the stated purpose",
+          "category": "data-protection",
+          "cwe": ["CWE-359"],
+          "owasp": ["A01:2021"],
           "patterns": [
-            "No DELETE endpoint",
-            "No EXPORT endpoint",
-            "No data correction mechanism",
-            "No access log for user requests"
+            "Excessive data collection",
+            "Collecting unnecessary personal information",
+            "No data retention policy"
           ],
-          "keywords": [
-            "user_rights",
-            "data_deletion",
-            "data_portability",
-            "right_to_access"
+          "remediation": "Review and minimize data collection to only essential fields, implement data retention policies"
+        },
+        {
+          "id": "DPDPA-004",
+          "name": "Breach Notification",
+          "severity": "critical",
+          "description": "Notify Data Protection Board and users of data breaches within 72 hours",
+          "category": "incident-response",
+          "cwe": ["CWE-778"],
+          "owasp": ["A09:2021"],
+          "patterns": [
+            "No breach detection mechanism",
+            "Missing notification workflow",
+            "No incident logging"
           ],
-          "fix_template": "\n// Implement user rights endpoints\n@app.get('/api/user/data/access')\nasync def right_to_access(): \n    return user_personal_data\n\n@app.delete('/api/user/data')\nasync def right_to_erasure():\n    await delete_all_personal_data(user_id)\n    \n@app.get('/api/user/data/export')\nasync def right_to_portability():\n    return export_personal_data_json(user_id)\n                        ",
-          "impact": "Missing user rights = non-compliance"
+          "remediation": "Implement breach detection, logging, and automated notification system"
+        },
+        {
+          "id": "DPDPA-005",
+          "name": "User Rights Implementation",
+          "severity": "high",
+          "description": "Implement mechanisms for users to access, correct, and delete their data",
+          "category": "data-protection",
+          "cwe": ["CWE-359"],
+          "owasp": ["A01:2021"],
+          "patterns": [
+            "No data access API",
+            "Missing data deletion functionality",
+            "No data portability support"
+          ],
+          "remediation": "Create APIs for data access, correction, deletion, and portability"
+        },
+        {
+          "id": "DPDPA-006",
+          "name": "Data Localization",
+          "severity": "high",
+          "description": "Store sensitive personal data within India's borders",
+          "category": "data-protection",
+          "cwe": ["CWE-359"],
+          "owasp": ["A01:2021"],
+          "patterns": [
+            "Data stored in foreign servers",
+            "No geographic restrictions",
+            "Cross-border data transfer without safeguards"
+          ],
+          "remediation": "Use Indian data centers for sensitive data storage and implement data residency controls"
+        },
+        {
+          "id": "DPDPA-007",
+          "name": "Children's Data Protection",
+          "severity": "critical",
+          "description": "Obtain verifiable parental consent for processing children's data (under 18)",
+          "category": "data-protection",
+          "cwe": ["CWE-359"],
+          "owasp": ["A01:2021"],
+          "patterns": [
+            "No age verification",
+            "Missing parental consent mechanism",
+            "Processing children's data without safeguards"
+          ],
+          "remediation": "Implement age verification and parental consent workflow"
         }
-      }
+      ]
     },
-    "RBI": {
-      "title": "Reserve Bank of India Guidelines",
-      "authority": "Reserve Bank of India",
-      "rules": {
-        "rbi_001_authorization_control": {
-          "id": "rbi_001",
-          "title": "Authorization Control",
-          "description": "Authorization must be enforced on server-side, not client-provided",
-          "section": "RBI Information Security Guidelines",
+    {
+      "id": "it-act-2000",
+      "name": "Information Technology Act 2000",
+      "description": "India's primary law for cybersecurity and electronic commerce",
+      "rules": [
+        {
+          "id": "ITA-001",
+          "name": "Unauthorized Access Prevention",
           "severity": "critical",
+          "description": "Prevent unauthorized access to computer systems and data (Section 43)",
+          "category": "access-control",
+          "cwe": ["CWE-284", "CWE-862"],
+          "owasp": ["A01:2021"],
           "patterns": [
-            "const role = req.body.role",
-            "const access_level = req.query.level",
-            "if (req.body.is_admin) { approve_transaction() }",
-            "user.role = req.body.role"
+            "Missing authentication",
+            "Weak access controls",
+            "No authorization checks",
+            "Default credentials"
           ],
-          "keywords": [
-            "authorization",
-            "role_check",
-            "privilege",
-            "admin"
-          ],
-          "fix_template": "\n// WRONG:  const role = req.body.role\n// RIGHT:  Extract from verified JWT/session\nconst role = extractFromJWT(req.headers.authorization);\n\nif (role !== 'admin') {\n    return 403;\n}\n                        ",
-          "impact": "Authorization bypass = unauthorized transactions"
+          "remediation": "Implement strong authentication, role-based access control, and regular access reviews"
         },
-        "rbi_002_transaction_atomicity": {
-          "id": "rbi_002",
-          "title": "Transaction Atomicity",
-          "description": "Financial transactions must be atomic (all-or-nothing)",
-          "section": "RBI Guidelines - Transaction Integrity",
+        {
+          "id": "ITA-002",
+          "name": "Data Protection and Privacy",
           "severity": "critical",
+          "description": "Protect sensitive personal data from unauthorized disclosure (Section 43A)",
+          "category": "data-protection",
+          "cwe": ["CWE-359", "CWE-311"],
+          "owasp": ["A02:2021"],
           "patterns": [
-            "balance = get_balance(); if balance > amount: debit();  // Race condition",
-            "check(balance); debit(); credit();  // Not atomic",
-            "await select(); // ... gap ... await update();  // Concurrent",
-            "read + write without transaction"
+            "Unencrypted sensitive data",
+            "Data exposure in logs",
+            "Insecure data transmission",
+            "Missing encryption"
           ],
-          "keywords": [
-            "transaction",
-            "atomic",
-            "race_condition",
-            "concurrency"
-          ],
-          "fix_template": "\n// Use pessimistic locking or transactions\nBEGIN TRANSACTION;\nbalance = SELECT balance FROM accounts WHERE id = ? FOR UPDATE;\nIF balance >= amount THEN\n    UPDATE accounts SET balance = balance - amount;\n    UPDATE accounts SET balance = balance + amount WHERE id = target;\n    COMMIT;\nELSE\n    ROLLBACK;\nEND IF;\n                        ",
-          "impact": "Race conditions = double charging, financial loss"
+          "remediation": "Encrypt sensitive data at rest and in transit, implement data classification"
         },
-        "rbi_003_encryption_enforcement": {
-          "id": "rbi_003",
-          "title": "Encryption in Transit and at Rest",
-          "description": "Use TLS 1.2+ for transit, AES-256 for rest",
-          "section": "RBI Guidelines - Encryption",
-          "severity": "critical",
-          "patterns": [
-            "http://api.bank.com/transfer  // Not HTTPS",
-            "store(plaintext_password)",
-            "send_over_http(card_details)",
-            "database without encryption"
-          ],
-          "keywords": [
-            "encryption",
-            "https",
-            "tls",
-            "aes",
-            "plaintext"
-          ],
-          "fix_template": "\n// Enforce TLS 1.2+ everywhere\nconst secureConnection = tls.createSecureContext({\n    minVersion: 'TLSv1.2',\n    maxVersion: 'TLSv1.3'\n});\n\n// Encrypt sensitive data at rest\nconst encrypted = encrypt(sensitiveData, 'AES-256');\n                        ",
-          "impact": "Unencrypted transmission = data interception, fraud"
-        },
-        "rbi_004_audit_trail": {
-          "id": "rbi_004",
-          "title": "Immutable Audit Trails",
-          "description": "Maintain 3-year audit logs of all transactions",
-          "section": "RBI Guidelines - Audit Trail",
+        {
+          "id": "ITA-003",
+          "name": "Secure Communication",
           "severity": "high",
+          "description": "Use secure protocols for data transmission",
+          "category": "cryptography",
+          "cwe": ["CWE-319", "CWE-326"],
+          "owasp": ["A02:2021"],
           "patterns": [
-            "No transaction logging",
-            "Modifiable logs",
-            "In-memory logging only",
-            "Log retention < 3 years"
+            "HTTP instead of HTTPS",
+            "Weak SSL/TLS configuration",
+            "Unencrypted API endpoints",
+            "Missing certificate validation"
           ],
-          "keywords": [
-            "audit",
-            "logging",
-            "transaction_log",
-            "trail"
-          ],
-          "fix_template": "\n// Append-only audit log\nasync function logTransaction(txn) {\n    const auditEntry = {\n        timestamp: Date.now(),\n        user_id: txn.user_id,\n        action: txn.action,\n        amount: txn.amount,\n        status: txn.status,\n        hash: sha256(JSON.stringify(txn))  // Immutable\n    };\n    \n    await auditLog.append(auditEntry);  // Append-only database\n    // Keep for 3+ years\n}\n                        ",
-          "impact": "Missing audit logs = non-compliance, cannot prove legitimacy"
+          "remediation": "Enforce HTTPS, use TLS 1.2+, implement certificate pinning"
         },
-        "rbi_005_rate_limiting": {
-          "id": "rbi_005",
-          "title": "Rate Limiting and Brute-Force Protection",
-          "description": "Implement rate limiting on sensitive operations",
-          "section": "RBI Guidelines - Security Controls",
+        {
+          "id": "ITA-004",
+          "name": "Input Validation",
           "severity": "high",
+          "description": "Validate all user inputs to prevent injection attacks",
+          "category": "input-validation",
+          "cwe": ["CWE-89", "CWE-79", "CWE-78"],
+          "owasp": ["A03:2021"],
           "patterns": [
-            "No rate limit on login",
-            "Unlimited transaction attempts",
-            "No CAPTCHA on suspicious activity",
-            "Unlimited API requests"
-          ],
-          "keywords": [
-            "rate_limit",
-            "brute_force",
-            "throttle",
-            "captcha"
-          ],
-          "fix_template": "\n// Implement rate limiting\nconst limiter = rateLimit({\n    windowMs: 15 * 60 * 1000,  // 15 minutes\n    max: 5  // Max 5 requests per IP\n});\n\napp.post('/login', limiter, handleLogin);\napp.post('/transfer', limiter, handleTransfer);\n                        ",
-          "impact": "No rate limiting = brute-force attacks, account takeover"
-        }
-      }
-    },
-    "SEBI": {
-      "title": "Securities and Exchange Board of India",
-      "authority": "SEBI",
-      "rules": {
-        "sebi_001_market_manipulation": {
-          "id": "sebi_001",
-          "title": "Anti-Market Manipulation",
-          "description": "Prevent unfair trading practices and information asymmetry",
-          "section": "SEBI - Insider Trading Regulations",
-          "severity": "critical",
-          "patterns": [
-            "selective_disclosure(insider_info, special_user)",
-            "delay_public_info(news) { give_to_vip_first() }",
-            "front_running: execute_trade_before_client_order",
-            "paint_tape: fake_volume_trading"
-          ],
-          "keywords": [
-            "insider_trading",
-            "market_manipulation",
-            "front_running"
-          ],
-          "fix_template": "\n// Ensure simultaneous disclosure\nasync function announceInfo(info) {\n    // Release to ALL users at same time\n    await broadcast(info, ALL_USERS);\n    \n    // Log order of disclosure\n    logSimultaneousDisclosure(info, timestamp);\n}\n\n// Prevent front-running\nvalidateOrderSequence(client_order_timestamp, execution_timestamp);\n                        ",
-          "impact": "Market manipulation penalty under SEBI Act"
-        },
-        "sebi_002_transparency": {
-          "id": "sebi_002",
-          "title": "Transparency in Trading",
-          "description": "Transparent pricing, no hidden charges",
-          "section": "SEBI - Investor Protection",
-          "severity": "high",
-          "patterns": [
-            "hidden_commission",
-            "undisclosed_fees",
-            "variable_pricing_by_user"
-          ],
-          "keywords": [
-            "transparency",
-            "fees",
-            "charges",
-            "pricing"
-          ],
-          "fix_template": "\n// Transparent pricing\nconst quote = {\n    symbol: 'RELIANCE',\n    buy_price: 2500.00,\n    sell_price: 2500.50,\n    charges: {\n        brokerage: 20,\n        fee: 5,\n        tax: 45\n    },\n    total: 2570.50\n};\n// Always SHOW all charges before confirmation\nshowFullBreakdown(quote, user);\n                        ",
-          "impact": "Lack of transparency = investor protection violation"
-        }
-      }
-    },
-    "IT_ACT": {
-      "title": "Information Technology Act 2000 & Sensitive Personal Data/Information (SPDI) Rules",
-      "authority": "Ministry of Electronics and Information Technology",
-      "rules": {
-        "it_001_unauthorized_access": {
-          "id": "it_001",
-          "title": "Unauthorized Access Prevention",
-          "description": "Prevent unauthorized access under Section 43/66",
-          "section": "IT Act Section 43 - Unauthorized Access",
-          "severity": "critical",
-          "patterns": [
-            "No authentication on sensitive endpoints",
-            "@app.get('/admin/users')  // No auth check",
-            "SELECT * allowed without login",
-            "SQL injection vulnerability"
-          ],
-          "keywords": [
-            "unauthorized_access",
-            "authentication",
-            "injection"
-          ],
-          "fix_template": "\n@app.get('/admin/users')\n@require_authentication  // Add auth middleware\n@require_role('admin')   // Add authorization\nasync def get_users():\n    return protected_data\n\n// Validate all inputs\nuser_id = validate_integer(request.query.user_id)\nquery = select_prepared_statement(user_id)  // Use parameterized queries\n                        ",
-          "impact": "Section 43 - damages up to ₹1 crore"
-        },
-        "it_002_data_protection": {
-          "id": "it_002",
-          "title": "Sensitive Data Protection",
-          "description": "Protect SPDI (Sensitive Personal Data/Information)",
-          "section": "SPDI Rules - Data Security",
-          "severity": "critical",
-          "patterns": [
-            "logger.info(f'User: {email}, {phone}, {ssn}')",
-            "console.log(sensitiveData)",
-            "send_via_email(ssn)",
-            "store_plaintext(password)"
-          ],
-          "keywords": [
-            "spdi",
-            "sensitive_data",
-            "pii",
-            "logging"
-          ],
-          "fix_template": "\n// Never log PII\nlogger.info('User registration completed');  // ✓ Safe\n\n// Mask sensitive data\nmasked_phone = phone.slice(-4).padStart(10, '*');  // ****345678\nmasked_ssn = ssn.slice(-2).padStart(12, '*');     // **********23\n\n// Hash passwords\npassword_hash = bcrypt.hash(password, 10);\n\n// Send only essential data\nsend_email(email, {\n    // Only email address, no sensitive data\n});\n                        ",
-          "impact": "SPDI compromise = Section 66/72 - imprisonment + penalty"
-        },
-        "it_003_input_validation": {
-          "id": "it_003",
-          "title": "Input Validation",
-          "description": "Validate all inputs to prevent injection attacks",
-          "section": "IT Act Section 65 - Tampering with Computer Source",
-          "severity": "critical",
-          "patterns": [
-            "query = 'SELECT * FROM users WHERE id = ' + request.id",
-            "eval(request.code)",
-            "exec(user_input)",
+            "SQL injection vulnerability",
+            "XSS vulnerability",
+            "Command injection",
             "No input sanitization"
           ],
-          "keywords": [
-            "injection",
-            "validation",
-            "sanitization"
-          ],
-          "fix_template": "\n// Use parameterized queries\nquery = 'SELECT * FROM users WHERE id = ?';\nresult = execute(query, [user_id]);\n\n// Validate and sanitize\nif (!isValidEmail(email)) throw new ValidationError();\nsanitized_input = sanitize(request.comment);\n                        ",
-          "impact": "Section 65 - Tampering = imprisonment up to 3 years"
-        }
-      }
-    },
-    "ISO_8000": {
-      "title": "ISO 8000 - Data Quality",
-      "authority": "International Standards Organization",
-      "rules": {
-        "iso_001_data_accuracy": {
-          "id": "iso_001",
-          "title": "Data Accuracy",
-          "description": "Data must be accurate and verified",
-          "section": "ISO 8000 - Data Quality",
-          "severity": "high",
-          "patterns": [
-            "store without validation",
-            "No verification mechanism",
-            "Accept unvalidated user input directly"
-          ],
-          "keywords": [
-            "accuracy",
-            "validation",
-            "verification"
-          ],
-          "fix_template": "\n// Verify data before storage\nif (validatePhoneNumber(phone) && validateEmail(email)) {\n    await database.store(userData);\n} else {\n    throw new ValidationError('Invalid data format');\n}\n\n// Use checksums\ndata_hash = sha256(data);\nstore_with_hash(data, data_hash);\n                        ",
-          "impact": "Poor data quality affects business decisions"
-        }
-      }
-    },
-    "GENERAL_SECURITY": {
-      "title": "General Security Best Practices",
-      "authority": "Industry Standard",
-      "rules": {
-        "sec_001_credentials_in_code": {
-          "id": "sec_001",
-          "title": "No Hardcoded Credentials",
-          "description": "Never store API keys, passwords in code",
-          "severity": "critical",
-          "patterns": [
-            "api_key = \"sk_live_abcd1234\"",
-            "password = \"admin123\"",
-            "db_password = \"mysql_root\"",
-            "aws_secret = \"aws_secret_access_key\""
-          ],
-          "keywords": [
-            "credentials",
-            "api_key",
-            "password",
-            "secret"
-          ],
-          "fix_template": "\n// Use environment variables\nconst api_key = process.env.GROQ_API_KEY;\nconst db_password = process.env.DB_PASSWORD;\n\n// Or use secrets manager\nconst secret = await secretsManager.get('db-password');\n                        ",
-          "impact": "Hardcoded secrets = account compromise"
+          "remediation": "Implement input validation, use parameterized queries, sanitize outputs"
         },
-        "sec_002_sql_injection": {
-          "id": "sec_002",
-          "title": "SQL Injection Prevention",
-          "description": "Always use parameterized queries",
-          "severity": "critical",
+        {
+          "id": "ITA-005",
+          "name": "Audit Trail Requirements",
+          "severity": "high",
+          "description": "Maintain comprehensive audit logs for security events",
+          "category": "logging",
+          "cwe": ["CWE-778", "CWE-223"],
+          "owasp": ["A09:2021"],
           "patterns": [
-            "f\"SELECT * FROM users WHERE id = {user_id}\"",
-            "query = f'UPDATE {table} SET {column} = {value}'",
-            "Non-parameterized SQL queries"
+            "Missing security logs",
+            "No audit trail",
+            "Insufficient logging",
+            "No log retention policy"
           ],
-          "keywords": [
-            "sql_injection",
-            "query",
-            "parameterized"
+          "remediation": "Implement comprehensive logging, secure log storage, and log retention policies"
+        },
+        {
+          "id": "ITA-006",
+          "name": "Password Security",
+          "severity": "critical",
+          "description": "Store passwords securely using strong hashing algorithms",
+          "category": "cryptography",
+          "cwe": ["CWE-256", "CWE-916"],
+          "owasp": ["A02:2021"],
+          "patterns": [
+            "Plain text passwords",
+            "Weak hashing (MD5, SHA1)",
+            "No password salting",
+            "Reversible encryption for passwords"
           ],
-          "fix_template": "\n// WRONG:\nquery = f\"SELECT * FROM users WHERE id = {user_id}\"\n\n// RIGHT:\nquery = \"SELECT * FROM users WHERE id = ?\"\ndatabase.execute(query, [user_id])\n                        ",
-          "impact": "SQL injection = database compromise"
+          "remediation": "Use bcrypt, Argon2, or PBKDF2 for password hashing with unique salts"
         }
-      }
+      ]
+    },
+    {
+      "id": "rbi-guidelines",
+      "name": "Reserve Bank of India Guidelines",
+      "description": "RBI cybersecurity and digital payment guidelines",
+      "rules": [
+        {
+          "id": "RBI-001",
+          "name": "Strong Authentication",
+          "severity": "critical",
+          "description": "Implement multi-factor authentication for financial transactions",
+          "category": "authentication",
+          "cwe": ["CWE-287", "CWE-308"],
+          "owasp": ["A07:2021"],
+          "patterns": [
+            "Single factor authentication",
+            "No MFA for transactions",
+            "Weak authentication mechanism",
+            "Missing second factor"
+          ],
+          "remediation": "Implement 2FA/MFA using OTP, biometrics, or hardware tokens"
+        },
+        {
+          "id": "RBI-002",
+          "name": "Transaction Atomicity",
+          "severity": "critical",
+          "description": "Ensure all financial transactions are atomic and reversible",
+          "category": "transaction-security",
+          "cwe": ["CWE-362", "CWE-367"],
+          "owasp": ["A04:2021"],
+          "patterns": [
+            "Non-atomic transactions",
+            "Race conditions in payments",
+            "No rollback mechanism",
+            "Missing transaction integrity checks"
+          ],
+          "remediation": "Use database transactions, implement idempotency, add rollback mechanisms"
+        },
+        {
+          "id": "RBI-003",
+          "name": "Encryption Standards",
+          "severity": "critical",
+          "description": "Use RBI-approved encryption standards (AES-256, RSA-2048+)",
+          "category": "cryptography",
+          "cwe": ["CWE-326", "CWE-327"],
+          "owasp": ["A02:2021"],
+          "patterns": [
+            "Weak encryption algorithms",
+            "Insufficient key length",
+            "DES or 3DES usage",
+            "Custom encryption"
+          ],
+          "remediation": "Use AES-256 for symmetric encryption, RSA-2048+ for asymmetric encryption"
+        },
+        {
+          "id": "RBI-004",
+          "name": "Payment Data Security",
+          "severity": "critical",
+          "description": "Protect payment card data according to PCI-DSS standards",
+          "category": "data-protection",
+          "cwe": ["CWE-359", "CWE-311"],
+          "owasp": ["A02:2021"],
+          "patterns": [
+            "Storing full card numbers",
+            "Unmasked CVV storage",
+            "Plain text card data",
+            "Missing tokenization"
+          ],
+          "remediation": "Implement tokenization, mask card numbers, never store CVV, use PCI-DSS compliant processors"
+        },
+        {
+          "id": "RBI-005",
+          "name": "Rate Limiting",
+          "severity": "high",
+          "description": "Implement rate limiting to prevent abuse and fraud",
+          "category": "security-controls",
+          "cwe": ["CWE-770", "CWE-307"],
+          "owasp": ["A04:2021"],
+          "patterns": [
+            "No rate limiting",
+            "Unlimited API calls",
+            "No brute force protection",
+            "Missing throttling"
+          ],
+          "remediation": "Implement rate limiting, request throttling, and account lockout mechanisms"
+        },
+        {
+          "id": "RBI-006",
+          "name": "Session Management",
+          "severity": "high",
+          "description": "Implement secure session management for banking applications",
+          "category": "session-management",
+          "cwe": ["CWE-384", "CWE-613"],
+          "owasp": ["A07:2021"],
+          "patterns": [
+            "Weak session tokens",
+            "No session timeout",
+            "Session fixation vulnerability",
+            "Predictable session IDs"
+          ],
+          "remediation": "Use cryptographically strong session tokens, implement timeouts, regenerate session IDs"
+        },
+        {
+          "id": "RBI-007",
+          "name": "Transaction Monitoring",
+          "severity": "high",
+          "description": "Monitor and log all financial transactions for fraud detection",
+          "category": "monitoring",
+          "cwe": ["CWE-778"],
+          "owasp": ["A09:2021"],
+          "patterns": [
+            "No transaction logging",
+            "Missing fraud detection",
+            "Insufficient monitoring",
+            "No anomaly detection"
+          ],
+          "remediation": "Implement real-time transaction monitoring, fraud detection algorithms, and alerting"
+        }
+      ]
+    },
+    {
+      "id": "sebi-guidelines",
+      "name": "Securities and Exchange Board of India",
+      "description": "SEBI cybersecurity guidelines for financial market participants",
+      "rules": [
+        {
+          "id": "SEBI-001",
+          "name": "Market Data Protection",
+          "severity": "critical",
+          "description": "Protect sensitive market data and trading information",
+          "category": "data-protection",
+          "cwe": ["CWE-359"],
+          "owasp": ["A01:2021"],
+          "patterns": [
+            "Unencrypted market data",
+            "Data leakage in APIs",
+            "Missing access controls",
+            "Insecure data storage"
+          ],
+          "remediation": "Encrypt market data, implement strict access controls, secure API endpoints"
+        },
+        {
+          "id": "SEBI-002",
+          "name": "Trading System Security",
+          "severity": "critical",
+          "description": "Ensure trading systems are secure and resilient",
+          "category": "system-security",
+          "cwe": ["CWE-284"],
+          "owasp": ["A01:2021"],
+          "patterns": [
+            "Weak authentication for trading",
+            "No order validation",
+            "Missing integrity checks",
+            "Vulnerable APIs"
+          ],
+          "remediation": "Implement strong authentication, order validation, and integrity verification"
+        },
+        {
+          "id": "SEBI-003",
+          "name": "Audit and Compliance Logging",
+          "severity": "high",
+          "description": "Maintain detailed audit logs for regulatory compliance",
+          "category": "logging",
+          "cwe": ["CWE-778"],
+          "owasp": ["A09:2021"],
+          "patterns": [
+            "Insufficient audit logs",
+            "No compliance tracking",
+            "Missing trade logs",
+            "Inadequate log retention"
+          ],
+          "remediation": "Implement comprehensive audit logging with long-term retention"
+        }
+      ]
+    },
+    {
+      "id": "iso-27001",
+      "name": "ISO 27001 Information Security",
+      "description": "International standard for information security management",
+      "rules": [
+        {
+          "id": "ISO-001",
+          "name": "Access Control Policy",
+          "severity": "high",
+          "description": "Implement and enforce access control policies",
+          "category": "access-control",
+          "cwe": ["CWE-284"],
+          "owasp": ["A01:2021"],
+          "patterns": [
+            "No access control policy",
+            "Missing role definitions",
+            "Overly permissive access",
+            "No principle of least privilege"
+          ],
+          "remediation": "Define and enforce access control policies based on least privilege principle"
+        },
+        {
+          "id": "ISO-002",
+          "name": "Cryptographic Controls",
+          "severity": "high",
+          "description": "Use appropriate cryptographic controls to protect information",
+          "category": "cryptography",
+          "cwe": ["CWE-326"],
+          "owasp": ["A02:2021"],
+          "patterns": [
+            "Weak cryptography",
+            "Hardcoded keys",
+            "Insecure key management",
+            "No key rotation"
+          ],
+          "remediation": "Use strong cryptography, implement secure key management, rotate keys regularly"
+        },
+        {
+          "id": "ISO-003",
+          "name": "Secure Development",
+          "severity": "high",
+          "description": "Follow secure development lifecycle practices",
+          "category": "secure-development",
+          "cwe": ["CWE-1188"],
+          "owasp": ["A04:2021"],
+          "patterns": [
+            "No security testing",
+            "Missing code reviews",
+            "No vulnerability scanning",
+            "Insecure dependencies"
+          ],
+          "remediation": "Implement SDLC security practices, conduct code reviews, scan for vulnerabilities"
+        },
+        {
+          "id": "ISO-004",
+          "name": "Incident Management",
+          "severity": "high",
+          "description": "Establish incident detection and response procedures",
+          "category": "incident-response",
+          "cwe": ["CWE-778"],
+          "owasp": ["A09:2021"],
+          "patterns": [
+            "No incident response plan",
+            "Missing detection mechanisms",
+            "No incident logging",
+            "Inadequate response procedures"
+          ],
+          "remediation": "Create incident response plan, implement detection systems, establish response procedures"
+        }
+      ]
+    },
+    {
+      "id": "cert-in",
+      "name": "CERT-In Guidelines",
+      "description": "Indian Computer Emergency Response Team cybersecurity guidelines",
+      "rules": [
+        {
+          "id": "CERTIN-001",
+          "name": "Vulnerability Management",
+          "severity": "high",
+          "description": "Implement vulnerability assessment and patch management",
+          "category": "vulnerability-management",
+          "cwe": ["CWE-1035"],
+          "owasp": ["A06:2021"],
+          "patterns": [
+            "Outdated dependencies",
+            "Unpatched vulnerabilities",
+            "No vulnerability scanning",
+            "Missing security updates"
+          ],
+          "remediation": "Regular vulnerability scanning, timely patching, dependency updates"
+        },
+        {
+          "id": "CERTIN-002",
+          "name": "Incident Reporting",
+          "severity": "critical",
+          "description": "Report cybersecurity incidents to CERT-In within 6 hours",
+          "category": "incident-response",
+          "cwe": ["CWE-778"],
+          "owasp": ["A09:2021"],
+          "patterns": [
+            "No incident reporting mechanism",
+            "Missing CERT-In integration",
+            "Delayed incident detection",
+            "No automated alerts"
+          ],
+          "remediation": "Implement automated incident detection and reporting to CERT-In"
+        },
+        {
+          "id": "CERTIN-003",
+          "name": "Log Retention",
+          "severity": "high",
+          "description": "Maintain system logs for minimum 180 days",
+          "category": "logging",
+          "cwe": ["CWE-778"],
+          "owasp": ["A09:2021"],
+          "patterns": [
+            "Insufficient log retention",
+            "No log backup",
+            "Missing log integrity",
+            "Inadequate log storage"
+          ],
+          "remediation": "Implement 180-day log retention with secure storage and integrity checks"
+        }
+      ]
+    }
+  ],
+  "metadata": {
+    "total_rules": 38,
+    "frameworks_count": 6,
+    "last_updated": "2024-01-15",
+    "compliance_scope": "India",
+    "supported_languages": ["python", "javascript", "java", "go", "ruby", "php"],
+    "severity_distribution": {
+      "critical": 15,
+      "high": 23,
+      "medium": 0,
+      "low": 0
     }
   }
 }

@@ -28,8 +28,8 @@ def load_indian_compliance_policies() -> str:
         with open(rules_file, 'r', encoding='utf-8') as f:
             rules_data = json.load(f)
         
-        # Extract frameworks and rules
-        frameworks = rules_data.get("frameworks", {})
+        # Extract frameworks and rules (frameworks is a list in new structure)
+        frameworks = rules_data.get("frameworks", [])
         
         # Build policy text from all frameworks
         policy_text = """# Indian Compliance Policy Requirements
@@ -142,28 +142,40 @@ All systems handling sensitive personal data must:
 ## Implementation Checklist
 """
         
-        # Add framework-specific requirements
-        for framework, framework_data in frameworks.items():
-            policy_text += f"\n### {framework}\n"
-            rules = framework_data.get("rules", {})
-            for rule_id, rule_data in rules.items():
-                title = rule_data.get("title", "")
-                description = rule_data.get("description", "")
-                patterns = rule_data.get("patterns", [])
+        # Add framework-specific requirements from new JSON structure
+        for framework_data in frameworks:
+            framework_name = framework_data.get("name", "Unknown Framework")
+            framework_desc = framework_data.get("description", "")
+            
+            policy_text += f"\n### {framework_name}\n"
+            if framework_desc:
+                policy_text += f"{framework_desc}\n\n"
+            
+            rules = framework_data.get("rules", [])
+            for rule in rules:
+                rule_name = rule.get("name", "")
+                description = rule.get("description", "")
+                patterns = rule.get("patterns", [])
+                remediation = rule.get("remediation", "")
                 
-                policy_text += f"\n#### {title}\n"
+                policy_text += f"\n#### {rule_name}\n"
                 policy_text += f"{description}\n"
                 
                 if patterns:
                     policy_text += "Violations detected:\n"
                     for pattern in patterns[:3]:  # First 3 patterns
                         policy_text += f"  - {pattern}\n"
+                
+                if remediation:
+                    policy_text += f"Remediation: {remediation}\n"
         
         logger.info(f"✓ Loaded Indian compliance policies ({len(policy_text)} chars)")
         return policy_text
         
     except Exception as e:
         logger.error(f"Failed to load Indian compliance policies: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return ""
 
 

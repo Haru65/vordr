@@ -113,7 +113,28 @@ class ComplianceAnalyzer:
         logger.info(f"  ✓ Step 4: Batch Mapper")
         logger.info(f"  ✓ Step 5: Gap Analyzer")
     
-    async def analyze_repository_for_compliance(self, repo_path: str, custom_policy_text: Optional[str] = None, language: str = "javascript") -> Dict[str, Any]:
+    def get_compliance_status(self) -> Dict[str, Any]:
+        """
+        Get current compliance analyzer status and loaded rules count
+        
+        Returns:
+            Dictionary with analyzer status and rules information
+        """
+        return {
+            "rules_loaded": len(self.rules_manager.rules) if hasattr(self, 'rules_manager') else 0,
+            "frameworks": ["DPDPA", "RBI", "IT Act", "SEBI", "ISO 8000"],
+            "ai_components": {
+                "repo_profiler": self.repo_profiler is not None,
+                "semgrep_verifier": self.semgrep_verifier is not None,
+                "business_logic_scanner": self.business_logic_scanner is not None,
+                "batch_mapper": self.batch_mapper is not None,
+                "iac_scanner": self.iac_scanner is not None,
+                "model_analyzer": self.model_analyzer is not None
+            },
+            "groq_enabled": self.groq_api_key is not None
+        }
+    
+    async def analyze_repository_for_compliance(self, repo_path: str, custom_policy_text: Optional[str] = None, language: str = "javascript", max_findings: int = 50) -> Dict[str, Any]:
         """
         SIMPLIFIED 3-STEP COMPLIANCE PIPELINE
         
@@ -131,6 +152,12 @@ class ComplianceAnalyzer:
           - AI generates fix suggestions for each violation
           - Provides code examples and best practices
           - Maps to compliance framework requirements
+        
+        Args:
+            repo_path: Path to the repository to analyze
+            custom_policy_text: Optional custom policy text
+            language: Programming language (default: javascript)
+            max_findings: Maximum number of findings to process (default: 50)
         """
         
         try:
@@ -164,6 +191,12 @@ class ComplianceAnalyzer:
             semgrep_findings = semgrep_results.get("findings", [])
             logger.info(f"  ✓ Semgrep: {len(semgrep_findings)} raw findings detected")
             
+            # ========== EARLY LIMIT: REDUCE FINDINGS BEFORE VERIFICATION ==========
+            # Limit findings BEFORE sending to AI verification to save API calls
+            if len(semgrep_findings) > max_findings:
+                logger.info(f"  ⚡ OPTIMIZATION: Limiting {len(semgrep_findings)} findings to {max_findings} before AI verification")
+                semgrep_findings = semgrep_findings[:max_findings]
+            
             # ========== STEP 3.5: SEMGREP VERIFICATION (NEW) ==========
             logger.info("[3.5/6] STEP 3.5 - Semgrep Proof-Checking with Groq (Filter False Positives)...")
             verified_findings = []
@@ -178,6 +211,56 @@ class ComplianceAnalyzer:
             else:
                 verified_findings = semgrep_findings
                 logger.info("  ⚠ Skipping Semgrep verification (verifier disabled)")
+            
+            # ========== EARLY STOPPING: CHECK IF WE HAVE ENOUGH FINDINGS ==========
+            if len(verified_findings) >= max_findings:
+                logger.info(f"  🛑 EARLY STOPPING: Found {len(verified_findings)} violations, limiting to {max_findings}")
+                logger.info(f"  ⚡ Skipping remaining analysis stages to save processing time")
+                verified_findings = verified_findings[:max_findings]
+                
+                # Skip remaining stages and return early
+                end_time = datetime.now()
+                duration = (end_time - start_time).total_seconds()
+                
+                stats = self.finding_merger.get_summary(verified_findings)
+                
+                logger.info(f"✓ SCAN COMPLETE (EARLY STOP) in {duration:.1f}s")
+                logger.info(f"  Total violations: {len(verified_findings)}")
+                logger.info(f"  Critical: {stats['by_severity'].get('critical', 0)} | High: {stats['by_severity'].get('high', 0)}")
+                
+                return {
+                    "status": "completed",
+                    "repository": repo_path,
+                    "violations": verified_findings,
+                    "total_violations": len(verified_findings),
+                    "gaps": [],
+                    "severity_breakdown": stats["by_severity"],
+                    "framework_breakdown": stats["by_framework"],
+                    "detector_breakdown": stats["by_detector"],
+                    "high_risk_files": stats["high_risk_files"],
+                    "early_stopped": True,
+                    "max_findings_limit": max_findings,
+                    "pipeline": {
+                        "step_1_ai_profiling": {"status": "complete", "findings": 1},
+                        "step_2_pre_built_rules": {"status": "complete", "rules_loaded": 18},
+                        "step_3a_semgrep_execution": {"status": "complete", "raw_findings": len(semgrep_findings)},
+                        "step_3_5_semgrep_verification": {"status": "complete", "verified_findings": len(verified_findings), "false_positives_filtered": len(semgrep_findings) - len(verified_findings)},
+                        "step_3b_business_logic_scanner": {"status": "skipped", "reason": "early_stopping"},
+                        "pivot_2_infrastructure_scanning": {"status": "skipped", "reason": "early_stopping"},
+                        "pivot_2_data_flow_analysis": {"status": "skipped", "reason": "early_stopping"},
+                        "step_4_framework_mapping": {"status": "skipped", "reason": "early_stopping"},
+                        "step_5_gap_analysis": {"status": "skipped", "reason": "early_stopping"}
+                    },
+                    "repo_profile": repo_profile,
+                    "semgrep_verification": {
+                        "raw_findings": len(semgrep_findings),
+                        "verified_findings": len(verified_findings),
+                        "false_positives": len(semgrep_findings) - len(verified_findings),
+                        "verification_efficiency": f"{round(100*(len(verified_findings)/len(semgrep_findings)), 1)}%" if semgrep_findings else "0%"
+                    },
+                    "scan_duration_seconds": duration,
+                    "timestamp": datetime.now().isoformat()
+                }
             
             # ========== STEP 3b: BUSINESS LOGIC SCANNING ==========
             logger.info("[3b/6] STEP 3b - Business Logic Analysis (Semantic Compliance Checker)...")

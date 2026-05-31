@@ -18,6 +18,7 @@ from profiles_routes import router as profiles_router
 from tenant_middleware import TenantContextMiddleware
 import os
 from dotenv import load_dotenv
+from uuid import uuid4
 
 # Load environment variables
 load_dotenv()
@@ -112,6 +113,21 @@ class ScanResponse(BaseModel):
     error_details: Optional[str] = None
     ai_enabled: Optional[bool] = None  # Whether AI analysis was used
     analysis_summary: Optional[Dict[str, Any]] = None  # AI-generated summary
+    # Additional fields for frontend compatibility
+    scan_id: Optional[str] = None  # UUID of the scan
+    findings: Optional[List[Dict[str, Any]]] = None  # Alias for compliance_issues
+    violations: Optional[List[Dict[str, Any]]] = None  # Alias for compliance_issues
+    total_findings: Optional[int] = None  # Total number of findings
+    repository_name: Optional[str] = None  # Repository name
+    repository: Optional[str] = None  # Alternative repository name field
+    critical_count: Optional[int] = 0  # Number of critical issues
+    high_count: Optional[int] = 0  # Number of high severity issues
+    medium_count: Optional[int] = 0  # Number of medium severity issues
+    low_count: Optional[int] = 0  # Number of low severity issues
+    
+    class Config:
+        # Allow extra fields that aren't defined in the model
+        extra = "allow"
 
 @app.get("/")
 def read_root():
@@ -433,23 +449,92 @@ def scan_git_repo_detailed(request: GitRepoRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
-# Get scan history (placeholder for future implementation)
+# Get scan history with database integration
 @app.get("/scan-history")
-def get_scan_history(limit: int = 10):
+def get_scan_history(
+    limit: int = 10,
+    offset: int = 0,
+    status: Optional[str] = None,
+    db: Session = Depends(lambda: SessionLocal())
+):
     """
-    Get the history of previous scans.
+    Get the history of previous scans from the database.
+    
+    Frontend calls: apiService.getScanHistory(limit)
     
     Args:
-        limit: Number of recent scans to return
+        limit: Number of recent scans to return (default: 10)
+        offset: Pagination offset (default: 0)
+        status: Optional filter by status (e.g., "completed", "failed")
         
     Returns:
-        List of recent scan results
+        List of recent scan results with metadata
+        
+    Example:
+        GET /scan-history?limit=20&offset=0
     """
-    return {
-        "message": "Scan history feature coming soon",
-        "limit": limit,
-        "history": []
-    }
+    try:
+        logger.info(f"Fetching scan history: limit={limit}, offset={offset}")
+        
+        # Build query
+        query = db.query(Scan).order_by(Scan.created_at.desc())
+        
+        # Apply optional status filter
+        if status:
+            query = query.filter(Scan.status == status)
+        
+        # Get total count (before pagination)
+        total = query.count()
+        
+        # Apply pagination
+        scans = query.offset(offset).limit(limit).all()
+        
+        logger.info(f"Found {len(scans)} scans out of {total} total")
+        
+        return {
+            "status": "success",
+            "scans": [
+                {
+                    "scan_id": str(scan.id),
+                    "id": str(scan.id),
+                    "repository_name": scan.repository_name or f"Repository {str(scan.id)[:8]}",
+                    "repository_url": getattr(scan, 'repository_url', None),
+                    "project_id": str(scan.project_id) if scan.project_id else None,
+                    "org_id": str(scan.org_id) if scan.org_id else None,
+                    "scan_date": scan.created_at.isoformat() if scan.created_at else None,
+                    "timestamp": scan.created_at.isoformat() if scan.created_at else None,
+                    "created_at": scan.created_at.isoformat() if scan.created_at else None,
+                    "completed_at": scan.completed_at.isoformat() if scan.completed_at else None,
+                    "branch": scan.branch or "main",
+                    "commit_sha": scan.commit_sha,
+                    "scan_duration": float(scan.scan_duration_seconds) if scan.scan_duration_seconds else 0,
+                    "scan_duration_seconds": float(scan.scan_duration_seconds) if scan.scan_duration_seconds else 0,
+                    "status": scan.status or "completed",
+                    "risk_score": float(scan.risk_score) if scan.risk_score else 0.0,
+                    "critical_count": scan.critical_violations or 0,
+                    "high_count": scan.high_violations or 0,
+                    "medium_count": scan.medium_violations or 0,
+                    "low_count": scan.low_violations or 0,
+                    "total_findings": scan.total_violations or 0,
+                    "total_violations": scan.total_violations or 0,
+                    "files_scanned": scan.files_scanned or 0,
+                }
+                for scan in scans
+            ],
+            "total": total,
+            "count": len(scans),
+            "limit": limit,
+            "offset": offset,
+        }
+        
+    except Exception as e:
+        logger.error(f"Error fetching scan history: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch scan history: {str(e)}"
+        )
+    finally:
+        db.close()
 
 # Get compliance rules (placeholder for future implementation)
 @app.get("/compliance-rules")
@@ -479,6 +564,354 @@ def get_compliance_rules():
             }
         ]
     }
+
+# Get scan details for a specific scan
+@app.get("/scan-details/{scan_id}")
+def get_scan_details_endpoint(
+    scan_id: str,
+    db: Session = Depends(lambda: SessionLocal())
+):
+    """
+    Get detailed information for a specific scan.
+    
+    Frontend calls: apiService.getScanDetails(scanId)
+    
+    Args:
+        scan_id: UUID of the scan
+        
+    Returns:
+        Detailed scan information with violations
+    """
+    try:
+        from uuid import UUID as UUID_TYPE
+        
+        logger.info(f"Fetching scan details for: {scan_id}")
+        
+        # Query for the scan
+        scan = db.query(Scan).filter(
+            Scan.id == UUID_TYPE(scan_id)
+        ).first()
+        
+        if not scan:
+            logger.warning(f"Scan not found: {scan_id}")
+            raise HTTPException(
+                status_code=404, 
+                detail=f"Scan {scan_id} not found"
+            )
+        
+        # Get violations for this scan
+        violations = db.query(Violation).filter(
+            Violation.scan_id == scan.id
+        ).order_by(Violation.severity.desc()).all()
+        
+        logger.info(f"Found {len(violations)} violations for scan {scan_id}")
+        
+        return {
+            "status": "success",
+            "scan": {
+                "id": str(scan.id),
+                "project_id": str(scan.project_id) if scan.project_id else None,
+                "org_id": str(scan.org_id) if scan.org_id else None,
+                "status": scan.status or "completed",
+                "risk_score": float(scan.risk_score) if scan.risk_score else 0.0,
+                "total_violations": scan.total_violations or 0,
+                "critical_violations": scan.critical_violations or 0,
+                "high_violations": scan.high_violations or 0,
+                "medium_violations": scan.medium_violations or 0,
+                "low_violations": scan.low_violations or 0,
+                "created_at": scan.created_at.isoformat() if scan.created_at else None,
+                "completed_at": scan.completed_at.isoformat() if scan.completed_at else None,
+                "updated_at": scan.updated_at.isoformat() if hasattr(scan, 'updated_at') and scan.updated_at else None,
+                "branch": scan.branch or "main",
+                "commit_sha": scan.commit_sha,
+                "commit_message": getattr(scan, 'commit_message', None),
+                "files_scanned": scan.files_scanned or 0,
+                "scan_duration_seconds": float(scan.scan_duration_seconds) if scan.scan_duration_seconds else 0.0,
+                "repository_url": getattr(scan, 'repository_url', None),
+                "repository_name": getattr(scan, 'repository_name', None),
+            },
+            "violations": [
+                {
+                    "id": str(v.id),
+                    "rule_id": v.rule_id,
+                    "severity": v.severity,
+                    "category": v.category,
+                    "message": v.message,
+                    "file_path": v.file_path,
+                    "line_number": v.line_number,
+                    "column_number": getattr(v, 'column_number', None),
+                    "ai_confidence": float(v.ai_confidence) if v.ai_confidence else None,
+                    "ai_fix_suggestion": v.ai_fix_suggestion,
+                    "status": getattr(v, 'status', 'open'),
+                    "created_at": v.created_at.isoformat() if v.created_at else None,
+                }
+                for v in violations
+            ],
+            "meta": {
+                "total_violations": len(violations),
+                "severity_breakdown": {
+                    "critical": len([v for v in violations if v.severity == "critical"]),
+                    "high": len([v for v in violations if v.severity == "high"]),
+                    "medium": len([v for v in violations if v.severity == "medium"]),
+                    "low": len([v for v in violations if v.severity == "low"]),
+                }
+            }
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error fetching scan details for {scan_id}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500, 
+            detail=f"Failed to fetch scan details: {str(e)}"
+        )
+    finally:
+        db.close()
+
+# Analytics endpoints
+@app.get("/analytics/trends")
+def get_analytics_trends(
+    period: str = "30d",
+    db: Session = Depends(lambda: SessionLocal())
+):
+    """
+    Get violation trends over a specified time period.
+    
+    Args:
+        period: Time period - "7d", "30d", "90d"
+        
+    Returns:
+        Daily violation counts and trends
+    """
+    try:
+        from datetime import datetime, timedelta
+        
+        logger.info(f"Fetching analytics trends for period: {period}")
+        
+        # Determine days based on period
+        period_days = {"7d": 7, "30d": 30, "90d": 90}.get(period, 30)
+        start_date = datetime.utcnow() - timedelta(days=period_days)
+        
+        # Query scans in period
+        scans = db.query(Scan).filter(
+            Scan.created_at >= start_date
+        ).order_by(Scan.created_at).all()
+        
+        # Group by date
+        trends_dict = {}
+        for scan in scans:
+            if scan.created_at:
+                date_key = scan.created_at.date().isoformat()
+                if date_key not in trends_dict:
+                    trends_dict[date_key] = {
+                        "violations": 0,
+                        "critical": 0,
+                        "high": 0,
+                        "medium": 0,
+                        "low": 0,
+                    }
+                trends_dict[date_key]["violations"] += scan.total_violations or 0
+                trends_dict[date_key]["critical"] += scan.critical_violations or 0
+                trends_dict[date_key]["high"] += scan.high_violations or 0
+                trends_dict[date_key]["medium"] += scan.medium_violations or 0
+                trends_dict[date_key]["low"] += scan.low_violations or 0
+        
+        # Convert to sorted list
+        trends = [
+            {
+                "date": date,
+                "violations": data["violations"],
+                "critical": data["critical"],
+                "high": data["high"],
+                "medium": data["medium"],
+                "low": data["low"],
+            }
+            for date, data in sorted(trends_dict.items())
+        ]
+        
+        return {
+            "status": "success",
+            "period": period,
+            "period_days": period_days,
+            "trends": trends,
+            "total_points": len(trends),
+        }
+        
+    except Exception as e:
+        logger.error(f"Error fetching analytics trends: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch trends: {str(e)}"
+        )
+    finally:
+        db.close()
+
+@app.get("/analytics/distribution")
+def get_analytics_distribution(
+    db: Session = Depends(lambda: SessionLocal())
+):
+    """
+    Get current severity distribution of all violations.
+    
+    Returns:
+        Count of violations by severity level
+    """
+    try:
+        logger.info("Fetching violation distribution")
+        
+        # Query all violations and count by severity
+        violations = db.query(Violation).all()
+        
+        distribution = {
+            "critical": sum(1 for v in violations if v.severity == "critical"),
+            "high": sum(1 for v in violations if v.severity == "high"),
+            "medium": sum(1 for v in violations if v.severity == "medium"),
+            "low": sum(1 for v in violations if v.severity == "low"),
+        }
+        
+        total = sum(distribution.values())
+        
+        return {
+            "status": "success",
+            "severity_distribution": distribution,
+            "total": total,
+            "percentages": {
+                "critical": round((distribution["critical"] / total * 100), 2) if total > 0 else 0,
+                "high": round((distribution["high"] / total * 100), 2) if total > 0 else 0,
+                "medium": round((distribution["medium"] / total * 100), 2) if total > 0 else 0,
+                "low": round((distribution["low"] / total * 100), 2) if total > 0 else 0,
+            }
+        }
+        
+    except Exception as e:
+        logger.error(f"Error fetching violation distribution: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch distribution: {str(e)}"
+        )
+    finally:
+        db.close()
+
+@app.get("/analytics/framework-stats")
+def get_analytics_framework_stats(
+    db: Session = Depends(lambda: SessionLocal())
+):
+    """
+    Get violation statistics grouped by compliance framework.
+    
+    Returns:
+        Violations grouped by framework
+    """
+    try:
+        logger.info("Fetching framework statistics")
+        
+        # Query violations and group by category/framework
+        violations = db.query(Violation).all()
+        
+        framework_counts = {}
+        for v in violations:
+            # Use category as framework proxy
+            framework = v.category or "Other"
+            framework_counts[framework] = framework_counts.get(framework, 0) + 1
+        
+        frameworks = [
+            {"framework": fw, "violations": count}
+            for fw, count in sorted(framework_counts.items(), key=lambda x: x[1], reverse=True)
+        ]
+        
+        return {
+            "status": "success",
+            "frameworks": frameworks,
+            "total": sum(f["violations"] for f in frameworks),
+        }
+        
+    except Exception as e:
+        logger.error(f"Error fetching framework stats: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to fetch framework stats: {str(e)}"
+        )
+    finally:
+        db.close()
+
+# Settings endpoints
+class UserSettings(BaseModel):
+    """User settings model"""
+    theme: Optional[str] = "dark"
+    notifications_enabled: Optional[bool] = True
+    auto_scan_enabled: Optional[bool] = False
+    scan_frequency: Optional[str] = "weekly"
+    email_on_critical: Optional[bool] = True
+    max_scans_per_month: Optional[int] = 100
+
+@app.post("/settings")
+def update_user_settings(
+    settings: UserSettings,
+    current_org: OrgContext = Depends(get_current_org),
+):
+    """
+    Update user/organization settings.
+    
+    Args:
+        settings: Settings to update
+        current_org: Organization context
+        
+    Returns:
+        Confirmation of updated settings
+    """
+    try:
+        logger.info(f"Updating settings for org {current_org.id}")
+        
+        return {
+            "status": "success",
+            "message": "Settings updated successfully",
+            "settings": settings.dict(),
+            "org_id": str(current_org.id),
+        }
+        
+    except Exception as e:
+        logger.error(f"Error updating settings: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to update settings"
+        )
+
+@app.get("/settings")
+def get_user_settings(
+    current_org: OrgContext = Depends(get_current_org),
+):
+    """
+    Get current user/organization settings.
+    
+    Returns:
+        Current settings for the user
+    """
+    try:
+        logger.info(f"Fetching settings for org {current_org.id}")
+        
+        # Default settings (in production, load from database)
+        default_settings = {
+            "theme": "dark",
+            "notifications_enabled": True,
+            "auto_scan_enabled": False,
+            "scan_frequency": "weekly",
+            "email_on_critical": True,
+            "max_scans_per_month": 100,
+        }
+        
+        return {
+            "status": "success",
+            "settings": default_settings,
+            "org_id": str(current_org.id),
+        }
+        
+    except Exception as e:
+        logger.error(f"Error fetching settings: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to fetch settings"
+        )
 
 # ============================================================================
 # INDIAN COMPLIANCE ENDPOINTS (Groq-powered)
@@ -1061,6 +1494,10 @@ async def complete_repository_scan(request: GitRepoRequest):
         import time
         start_time = time.time()
         
+        # Generate scan ID for tracking
+        scan_id = str(uuid4())
+        logger.info(f"[COMPLETE SCAN] Generated scan ID: {scan_id}")
+        
         # Validate URL format
         if not request.git_repo_url.startswith(('http://', 'https://', 'git@')):
             logger.warning(f"Invalid URL format: {request.git_repo_url}")
@@ -1107,6 +1544,8 @@ async def complete_repository_scan(request: GitRepoRequest):
                             
                             logger.info(f"  [RESULTS] Files analyzed: {files_analyzed}")
                             logger.info(f"  [RESULTS] Violations detected: {len(violations)}")
+                            logger.info(f"  [DEBUG] Pipeline result keys: {pipeline_result.keys()}")
+                            logger.info(f"  [DEBUG] First violation sample: {violations[0] if violations else 'No violations'}")
                             
                             if violations:
                                 severity_breakdown = pipeline_result.get("severity_breakdown", {})
@@ -1114,12 +1553,30 @@ async def complete_repository_scan(request: GitRepoRequest):
                                            f"High: {severity_breakdown.get('high', 0)}, "
                                            f"Medium: {severity_breakdown.get('medium', 0)}")
                             
+                            # Calculate severity counts
+                            severity_breakdown = pipeline_result.get("severity_breakdown", {})
+                            critical_count = severity_breakdown.get("critical", 0)
+                            high_count = severity_breakdown.get("high", 0)
+                            medium_count = severity_breakdown.get("medium", 0)
+                            low_count = severity_breakdown.get("low", 0)
+                            
                             # Merge pipeline results with clone results
                             result["compliance_issues"] = violations
+                            result["findings"] = violations  # Add findings field for frontend compatibility
+                            result["violations"] = violations  # Add violations field for frontend compatibility
                             result["issues_count"] = len(violations)
+                            result["total_findings"] = len(violations)
+                            result["total_violations"] = len(violations)
+                            
+                            # Add severity counts
+                            result["critical_count"] = critical_count
+                            result["high_count"] = high_count
+                            result["medium_count"] = medium_count
+                            result["low_count"] = low_count
+                            
                             result["analysis_summary"] = {
                                 "total_violations": len(violations),
-                                "severity_breakdown": pipeline_result.get("severity_breakdown", {}),
+                                "severity_breakdown": severity_breakdown,
                                 "remediations_available": len(pipeline_result.get("remediations", [])),
                                 "files_analyzed": files_analyzed,
                                 "scan_method": "AI-driven semantic analysis (Groq)",
@@ -1127,6 +1584,14 @@ async def complete_repository_scan(request: GitRepoRequest):
                                 "policy_framework": "Indian Compliance (DPDPA, RBI, IT Act 2000)"
                             }
                             logger.info(f"  ✓ Compliance analysis completed - {len(violations)} violations detected")
+                            logger.info(f"  ✓ Severity breakdown - Critical: {critical_count}, High: {high_count}, Medium: {medium_count}, Low: {low_count}")
+                            logger.info(f"  [DEBUG] Response structure:")
+                            logger.info(f"    - compliance_issues: {len(result.get('compliance_issues', []))}")
+                            logger.info(f"    - findings: {len(result.get('findings', []))}")
+                            logger.info(f"    - violations: {len(result.get('violations', []))}")
+                            logger.info(f"    - critical_count: {result.get('critical_count')}")
+                            logger.info(f"    - high_count: {result.get('high_count')}")
+                            logger.info(f"    - total_findings: {result.get('total_findings')}")
                         else:
                             logger.error(f"Analysis error: {pipeline_result['error']}")
                             result["error_details"] = pipeline_result["error"]
@@ -1157,7 +1622,37 @@ async def complete_repository_scan(request: GitRepoRequest):
         end_time = time.time()
         result["scan_duration"] = round(end_time - start_time, 2)
         
+        # Ensure all fields for frontend compatibility
+        result["scan_id"] = scan_id
+        
+        # Add repository_name if not present
+        if "repository_name" not in result:
+            result["repository_name"] = result.get("repo", "Unknown Repository")
+        
+        # Ensure findings/violations fields are populated
+        if "findings" not in result and "compliance_issues" in result:
+            result["findings"] = result["compliance_issues"]
+        if "violations" not in result and "compliance_issues" in result:
+            result["violations"] = result["compliance_issues"]
+        if "total_findings" not in result:
+            result["total_findings"] = result.get("issues_count", 0)
+        
+        # Ensure severity counts are present
+        if "critical_count" not in result:
+            result["critical_count"] = 0
+        if "high_count" not in result:
+            result["high_count"] = 0
+        if "medium_count" not in result:
+            result["medium_count"] = 0
+        if "low_count" not in result:
+            result["low_count"] = 0
+        
         logger.info(f"[COMPLETE SCAN] Completed in {result['scan_duration']}s")
+        logger.info(f"[COMPLETE SCAN] Response contains:")
+        logger.info(f"  - scan_id: {result.get('scan_id')}")
+        logger.info(f"  - findings: {len(result.get('findings', []))}")
+        logger.info(f"  - violations: {len(result.get('violations', []))}")
+        logger.info(f"  - total_findings: {result.get('total_findings')}")
         
         return ScanResponse(**result)
         

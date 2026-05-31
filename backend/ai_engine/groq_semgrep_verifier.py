@@ -3,6 +3,7 @@ Groq Semgrep Verifier - Step 3.5: Verify Semgrep Findings with AI
 Takes Semgrep JSON output, extracts code_snippet and message, sends to Groq for proof-checking
 """
 
+import asyncio
 import logging
 import json
 from typing import Dict, List, Any, Optional
@@ -56,7 +57,7 @@ class GroqSemgrepVerifier:
         logger.info(f"[VERIFY] Proof-checking {len(semgrep_findings)} Semgrep findings with Groq...")
         
         verified_findings = []
-        batch_size = 10  # Increased from 5 to 10 for better throughput
+        batch_size = 5  # Reduced from 10 to 5 to avoid rate limits
         max_findings = min(len(semgrep_findings), 50)  # Process up to 50 findings
         
         logger.info(f"  Processing {max_findings} findings in batches of {batch_size}")
@@ -69,6 +70,11 @@ class GroqSemgrepVerifier:
                 batch_verified = await self._verify_batch(batch, repo_context)
                 verified_findings.extend(batch_verified)
                 logger.info(f"    ✓ Verified {len(batch_verified)}/{len(batch)} in this batch")
+                
+                # Add delay between batches to avoid rate limits (1 second)
+                if i + batch_size < max_findings:
+                    await asyncio.sleep(1.0)
+                    
             except Exception as e:
                 logger.error(f"    ✗ Batch verification failed: {e}")
                 # Continue with next batch instead of failing completely
@@ -84,15 +90,20 @@ class GroqSemgrepVerifier:
         return verified_findings
     
     async def _verify_batch(self, findings: List[Dict], repo_context: str) -> List[Dict]:
-        """Verify a batch of findings - optimized for speed"""
+        """Verify a batch of findings - optimized for speed with rate limiting"""
         verified = []
         
-        # Process findings in parallel-like manner (sequential but fast)
+        # Process findings sequentially with delays to avoid rate limits
         for i, finding in enumerate(findings, 1):
             try:
                 verified_finding = await self._verify_single_finding(finding, repo_context)
                 if verified_finding:  # Only include if confidence > threshold
                     verified.append(verified_finding)
+                
+                # Add small delay between individual requests (200ms)
+                if i < len(findings):
+                    await asyncio.sleep(0.2)
+                    
             except Exception as e:
                 logger.debug(f"    Finding {i}/{len(findings)} verification failed: {e}")
                 # Continue with next finding
@@ -101,7 +112,7 @@ class GroqSemgrepVerifier:
         return verified
     
     async def _verify_single_finding(self, finding: Dict, repo_context: str) -> Optional[Dict]:
-        """Verify a single Semgrep finding with model fallback"""
+        """Verify a single Semgrep finding with model fallback and exponential backoff"""
         
         # Extract code snippet and message
         code_snippet = finding.get("code_snippet", "")
@@ -122,15 +133,17 @@ class GroqSemgrepVerifier:
             repo_context
         )
         
-        # Try models in order until one works
+        # Try models in order until one works with exponential backoff
+        max_retries = 3
         for model in self.models:
-            try:
-                response = self.client.chat.completions.create(
-                    model=model,
-                    messages=[
-                        {
-                            "role": "system",
-                            "content": """You are a STRICT Indian Regulatory Auditor specializing in DPDPA 2023, RBI Guidelines, and IT Act 2000. 
+            for retry in range(max_retries):
+                try:
+                    response = self.client.chat.completions.create(
+                        model=model,
+                        messages=[
+                            {
+                                "role": "system",
+                                "content": """You are a STRICT Indian Regulatory Auditor specializing in DPDPA 2023, RBI Guidelines, and IT Act 2000. 
 Your job is to VALIDATE compliance violations, not dismiss them.
 
 PRINCIPLE: Code is GUILTY until proven SAFE. You must find reasons to confirm violations, not reasons to dismiss them.
@@ -147,52 +160,61 @@ IMPORTANT:
 - Missing audit logs = VIOLATION
 
 Be STRICT, not lenient. Compliance costs companies fines of up to 4% of revenue per the DPDPA."""
-                        },
-                        {
-                            "role": "user",
-                            "content": prompt
-                        }
-                    ],
-                    temperature=0.1,  # Lower for stricter, more deterministic responses
-                    max_tokens=500
-                )
-                
-                result_text = response.choices[0].message.content.strip()
-                self.model = model  # Update to working model
-                
-                # Parse JSON response
-                if result_text.startswith("```"):
-                    result_text = result_text.split("```")[1]
-                    if result_text.startswith("json"):
-                        result_text = result_text[4:]
-                
-                verification = json.loads(result_text)
-                
-                # Lower threshold to 0.3 since we're now using strict auditor mindset
-                # Trust Semgrep's pattern detection, use verifier to confirm violations
-                if verification.get("is_violation", False) and verification.get("confidence", 0) > 0.3:
-                    return {
-                        **finding,
-                        "verified": True,
-                        "confidence": verification.get("confidence", 0.4),
-                        "verification_reason": verification.get("reason", ""),
-                        "detector": "semgrep+groq"
-                    }
-                else:
-                    logger.debug(f"  ✗ False positive: {rule_id} (confidence: {verification.get('confidence', 0)})")
-                    return None
+                            },
+                            {
+                                "role": "user",
+                                "content": prompt
+                            }
+                        ],
+                        temperature=0.1,  # Lower for stricter, more deterministic responses
+                        max_tokens=500
+                    )
                     
-            except json.JSONDecodeError as e:
-                logger.debug(f"Failed to parse response from {model}: {e}")
-                continue
-            except Exception as e:
-                # Check for rate limit error
-                if "429" in str(e) or "rate_limit" in str(e).lower():
-                    logger.warning(f"  Rate limit on {model}, trying next...")
-                    continue
-                else:
-                    logger.debug(f"  Error with {model}: {e}")
-                    continue
+                    result_text = response.choices[0].message.content.strip()
+                    self.model = model  # Update to working model
+                    
+                    # Parse JSON response
+                    if result_text.startswith("```"):
+                        result_text = result_text.split("```")[1]
+                        if result_text.startswith("json"):
+                            result_text = result_text[4:]
+                    
+                    verification = json.loads(result_text)
+                    
+                    # Lower threshold to 0.3 since we're now using strict auditor mindset
+                    # Trust Semgrep's pattern detection, use verifier to confirm violations
+                    if verification.get("is_violation", False) and verification.get("confidence", 0) > 0.3:
+                        return {
+                            **finding,
+                            "verified": True,
+                            "confidence": verification.get("confidence", 0.4),
+                            "verification_reason": verification.get("reason", ""),
+                            "detector": "semgrep+groq"
+                        }
+                    else:
+                        logger.debug(f"  ✗ False positive: {rule_id} (confidence: {verification.get('confidence', 0)})")
+                        return None
+                        
+                except json.JSONDecodeError as e:
+                    logger.debug(f"Failed to parse response from {model}: {e}")
+                    break  # Don't retry on parse errors, try next model
+                    
+                except Exception as e:
+                    error_str = str(e).lower()
+                    # Check for rate limit error
+                    if "429" in str(e) or "rate_limit" in error_str or "too many requests" in error_str:
+                        if retry < max_retries - 1:
+                            # Exponential backoff: 2^retry seconds
+                            wait_time = 2 ** retry
+                            logger.warning(f"  Rate limit on {model}, waiting {wait_time}s before retry {retry+1}/{max_retries}...")
+                            await asyncio.sleep(wait_time)
+                            continue
+                        else:
+                            logger.warning(f"  Rate limit on {model} after {max_retries} retries, trying next model...")
+                            break
+                    else:
+                        logger.debug(f"  Error with {model}: {e}")
+                        break  # Try next model
         
         # If all models fail, return finding as-is with lower confidence
         logger.warning(f"  All models failed for {rule_id}, including as unverified")

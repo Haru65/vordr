@@ -42,26 +42,41 @@ class IndianComplianceRulesManager:
             with open(self.rules_file, 'r', encoding='utf-8') as f:
                 data = json.load(f)
             
-            self.rules = {rule['id']: rule for rule in data.get('rules', [])}
+            # Extract rules from frameworks structure
+            all_rules = []
+            for framework in data.get('frameworks', []):
+                framework_id = framework.get('id')
+                framework_name = framework.get('name')
+                
+                for rule in framework.get('rules', []):
+                    # Add framework info to each rule
+                    rule['framework'] = framework_name
+                    rule['framework_id'] = framework_id
+                    all_rules.append(rule)
+            
+            # Build indexes
+            self.rules = {rule['id']: rule for rule in all_rules}
             
             # Index by framework
-            for rule in data.get('rules', []):
+            for rule in all_rules:
                 framework = rule.get('framework')
                 if framework not in self.rules_by_framework:
                     self.rules_by_framework[framework] = []
                 self.rules_by_framework[framework].append(rule)
             
             # Index by severity
-            for rule in data.get('rules', []):
+            for rule in all_rules:
                 severity = rule.get('severity')
                 if severity not in self.rules_by_severity:
                     self.rules_by_severity[severity] = []
                 self.rules_by_severity[severity].append(rule)
             
-            # Collect all keywords
-            for rule in data.get('rules', []):
-                for keyword in rule.get('keywords', []):
-                    self.all_keywords.add(keyword.lower())
+            # Collect all keywords from patterns
+            for rule in all_rules:
+                for pattern in rule.get('patterns', []):
+                    # Extract keywords from patterns
+                    words = pattern.lower().split()
+                    self.all_keywords.update(words)
             
             logger.info(f"✓ Loaded {len(self.rules)} Indian compliance rules")
             logger.info(f"  Frameworks: {', '.join(self.rules_by_framework.keys())}")
@@ -70,6 +85,8 @@ class IndianComplianceRulesManager:
             
         except Exception as e:
             logger.error(f"Failed to load rules: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
     
     def get_rule(self, rule_id: str) -> Optional[Dict[str, Any]]:
         """Get specific rule by ID"""
@@ -105,14 +122,16 @@ class IndianComplianceRulesManager:
         keywords_lower = [k.lower() for k in keywords]
         
         for rule in self.rules.values():
-            rule_keywords = [kw.lower() for kw in rule.get('keywords', [])]
+            # Check patterns
+            patterns = [p.lower() for p in rule.get('patterns', [])]
             
-            # Check if any keywords match
-            if any(k in self.all_keywords for k in keywords_lower):
-                for rule_kw in rule_keywords:
-                    if any(kw in rule_kw or rule_kw in kw for kw in keywords_lower):
-                        matching.append(rule)
-                        break
+            # Check if any keywords match patterns or rule name/description
+            rule_text = f"{rule.get('name', '')} {rule.get('description', '')}".lower()
+            
+            for keyword in keywords_lower:
+                if keyword in rule_text or any(keyword in p for p in patterns):
+                    matching.append(rule)
+                    break
         
         return matching
     
@@ -127,7 +146,7 @@ class IndianComplianceRulesManager:
             "high": len([r for r in rules if r.get('severity') == 'high']),
             "rules": [{
                 "id": r.get('id'),
-                "title": r.get('title'),
+                "name": r.get('name'),
                 "severity": r.get('severity')
             } for r in rules]
         }
@@ -143,20 +162,19 @@ class IndianComplianceRulesManager:
         """Convert rule to Groq prompt for semantic analysis"""
         
         patterns = "\n  - ".join(rule.get('patterns', []))
-        impact = rule.get('impact', 'Non-compliance')
         
         prompt = f"""
-Rule: {rule.get('title')}
+Rule: {rule.get('name')}
 Framework: {rule.get('framework')}
 Severity: {rule.get('severity')}
-Section: {rule.get('section')}
+Category: {rule.get('category')}
 
 Description: {rule.get('description')}
 
 Violation Patterns to Detect:
   - {patterns}
 
-Impact: {impact}
+Remediation: {rule.get('remediation')}
 
 Provide a semantic code analysis to detect if this violation exists in the provided code.
 """
@@ -178,7 +196,10 @@ Provide a semantic code analysis to detect if this violation exists in the provi
         keywords = set()
         
         for rule in rules:
-            keywords.update(rule.get('keywords', []))
+            # Extract keywords from patterns
+            for pattern in rule.get('patterns', []):
+                words = pattern.lower().split()
+                keywords.update(words)
         
         return list(keywords)
 

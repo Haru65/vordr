@@ -1,7 +1,6 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 """
-Clear all Python caches in the project
-Resolves stale bytecode issues
+Clear Python cache files to ensure fresh imports
 """
 
 import os
@@ -9,72 +8,36 @@ import shutil
 from pathlib import Path
 
 def clear_pycache():
-    """Remove all __pycache__ directories"""
-    count = 0
-    for pycache_dir in Path('.').rglob('__pycache__'):
+    """Remove all __pycache__ directories and .pyc files"""
+    
+    backend_dir = Path(__file__).parent
+    
+    print("Clearing Python cache files...")
+    
+    removed_dirs = 0
+    removed_files = 0
+    
+    # Remove __pycache__ directories
+    for pycache_dir in backend_dir.rglob("__pycache__"):
         try:
             shutil.rmtree(pycache_dir)
-            print(f"Removed: {pycache_dir}")
-            count += 1
+            removed_dirs += 1
+            print(f"  Removed: {pycache_dir}")
         except Exception as e:
-            print(f"Error removing {pycache_dir}: {e}")
-    return count
-
-def clear_pyc_files():
-    """Remove all .pyc files"""
-    count = 0
-    for pyc_file in Path('.').rglob('*.pyc'):
+            print(f"  Failed to remove {pycache_dir}: {e}")
+    
+    # Remove .pyc files
+    for pyc_file in backend_dir.rglob("*.pyc"):
         try:
             pyc_file.unlink()
-            print(f"Removed: {pyc_file}")
-            count += 1
+            removed_files += 1
+            print(f"  Removed: {pyc_file}")
         except Exception as e:
-            print(f"Error removing {pyc_file}: {e}")
-    return count
-
-def clear_pyo_files():
-    """Remove all .pyo files"""
-    count = 0
-    for pyo_file in Path('.').rglob('*.pyo'):
-        try:
-            pyo_file.unlink()
-            print(f"Removed: {pyo_file}")
-            count += 1
-        except Exception as e:
-            print(f"Error removing {pyo_file}: {e}")
-    return count
-
-def main():
-    print("=" * 60)
-    print("CLEARING PYTHON CACHES")
-    print("=" * 60)
-    print()
+            print(f"  Failed to remove {pyc_file}: {e}")
     
-    print("Clearing __pycache__ directories...")
-    pycache_count = clear_pycache()
-    print(f"  Removed {pycache_count} __pycache__ directories")
-    print()
-    
-    print("Clearing .pyc files...")
-    pyc_count = clear_pyc_files()
-    print(f"  Removed {pyc_count} .pyc files")
-    print()
-    
-    print("Clearing .pyo files...")
-    pyo_count = clear_pyo_files()
-    print(f"  Removed {pyo_count} .pyo files")
-    print()
-    
-    total = pycache_count + pyc_count + pyo_count
-    print("=" * 60)
-    print(f"✓ Total items cleared: {total}")
-    print("=" * 60)
-    print()
-    print("NEXT STEPS:")
-    print("1. Stop any running servers (Ctrl+C)")
-    print("2. Restart the application: python main.py")
-    print("3. The application will recompile with fresh bytecode")
-    print()
+    print(f"\n✓ Removed {removed_dirs} __pycache__ directories")
+    print(f"✓ Removed {removed_files} .pyc files")
+    print("\nCache cleared! Please restart the server.")
 
 if __name__ == "__main__":
-    main()
+    clear_pycache()
